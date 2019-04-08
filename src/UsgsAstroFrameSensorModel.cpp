@@ -738,6 +738,7 @@ std::string UsgsAstroFrameSensorModel::getModelState() const {
       {"m_currentParameterCovariance", m_currentParameterCovariance},
       {"m_logFile", m_logFile}
     };
+    MESSAGE_LOG(this->m_logger, "STATE: {}", state.dump())
     return state.dump();
 }
 
