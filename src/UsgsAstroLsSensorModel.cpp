@@ -2544,8 +2544,21 @@ std::string UsgsAstroLsSensorModel::constructStateFromIsd(const std::string imag
    state["m_covariance"][i * NUM_PARAMETERS + i] = 1.0;
   }
 
+  if (!parsingWarnings->empty()) {
+    if (warnings) {
+      warnings->insert(warnings->end(), parsingWarnings->begin(), parsingWarnings->end());
+    }
+    delete parsingWarnings;
+    parsingWarnings = nullptr;
+    throw csm::Error(csm::Error::SENSOR_MODEL_NOT_CONSTRUCTIBLE,
+                     "ISD is invalid for creating the sensor model.",
+                     "UsgsAstroFrameSensorModel::constructStateFromIsd");
+  }
 
-   // The state data will still be updated when a sensor model is created since
-   // some state data is notin the ISD and requires a SM to compute them.
-   return state.dump();
+  delete parsingWarnings;
+  parsingWarnings = nullptr;
+
+  // The state data will still be updated when a sensor model is created since
+  // some state data is notin the ISD and requires a SM to compute them.
+  return state.dump();
 }
