@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include "RasterGM.h"
+#include <SettableEllipsoid.h>
 #include "CorrelationModel.h"
 #include "Distortion.h"
 #include "Utilities.h"
@@ -14,10 +15,11 @@
 #include "spdlog/sinks/basic_file_sink.h"
 
 #include <json/json.hpp>
+
 using json = nlohmann::json;
 
 
-class UsgsAstroFrameSensorModel : public csm::RasterGM {
+class UsgsAstroFrameSensorModel : public csm::RasterGM, virtual public csm::SettableEllipsoid {
   // UsgsAstroFramePlugin needs to access private members
   friend class UsgsAstroFramePlugin;
 
@@ -60,7 +62,7 @@ class UsgsAstroFrameSensorModel : public csm::RasterGM {
     * @return @b vector<double> Returns the body-fixed X,Y,Z coordinates of the intersection.
     *                           If no intersection, returns a 3-element vector of 0's.
     */
-    virtual csm::EcefCoord imageToGround(const csm::ImageCoord &imagePt, double height,
+    virtual csm::EcefCoord imageToGround(const csm::ImageCoord &imagePt, double height = 0.0,
                                     double desiredPrecision=0.001, double *achievedPrecision=NULL,
                                     csm::WarningList *warnings=NULL) const;
 
@@ -287,6 +289,16 @@ class UsgsAstroFrameSensorModel : public csm::RasterGM {
       //  If the argument state string is empty, the model remains unchanged.
       //<
 
+      // Implement methods from the SettableEllipsoid class
+
+      virtual csm::Ellipsoid getEllipsoid() const;
+      //> This method returns the planetary ellipsoid.
+      //<
+
+      virtual void setEllipsoid(const csm::Ellipsoid &ellipsoid);
+      //> This method sets the planetary ellipsoid.
+      //<
+
     // IMPLEMENT GEOMETRICMODEL PURE VIRTUALS
     // See GeometricModel.h for documentation
     virtual csm::EcefCoord getReferencePoint() const;
@@ -311,6 +323,7 @@ class UsgsAstroFrameSensorModel : public csm::RasterGM {
         const GeometricModel &comparisonModel,
         csm::param::Set pSet = csm::param::VALID,
         const GeometricModelList &otherModels = GeometricModelList()) const;
+    virtual std::shared_ptr<spdlog::logger> getLogger();
 
     static const std::string _SENSOR_MODEL_NAME;
 
@@ -337,10 +350,10 @@ class UsgsAstroFrameSensorModel : public csm::RasterGM {
     double m_focalLength;
     double m_minElevation;
     double m_maxElevation;
-    double m_linePp;
-    double m_samplePp;
     double m_startingDetectorSample;
     double m_startingDetectorLine;
+    double m_detectorSampleSumming;
+    double m_detectorLineSumming;
     std::string m_targetName;
     std::string m_modelName;
     std::string m_sensorName;

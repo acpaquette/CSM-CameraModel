@@ -1,4 +1,5 @@
 #include "Utilities.h"
+#include <Error.h>
 
 using json = nlohmann::json;
 
@@ -61,24 +62,29 @@ void calculateRotationMatrixFromQuaternions(
 // in - startingSample - first ccd sample for the image
 // in - iTransS[3] - the transformation from focal plane to ccd samples
 // in - iTransL[3] - the transformation from focal plane to ccd lines
-// out - natFocalPlane
+// out - distortedX
+// out - distortedY
 void computeDistortedFocalPlaneCoordinates(
     const double& line,
     const double& sample,
     const double& sampleOrigin,
     const double& lineOrigin,
     const double& sampleSumming,
+    const double& lineSumming,
     const double& startingSample,
+    const double& startingLine,
     const double iTransS[],
     const double iTransL[],
-    std::tuple<double, double>& natFocalPlane)
+    double &distortedX,
+    double &distortedY)
 {
   double detSample = sample * sampleSumming + startingSample;
+  double detLine = line * lineSumming + startingLine;
   double m11 = iTransL[1];
   double m12 = iTransL[2];
   double m21 = iTransS[1];
   double m22 = iTransS[2];
-  double t1 = line - lineOrigin - iTransL[0];
+  double t1 = detLine - lineOrigin - iTransL[0];
   double t2 = detSample - sampleOrigin - iTransS[0];
   double determinant = m11 * m22 - m12 * m21;
   double p11 = m11 / determinant;
@@ -86,8 +92,40 @@ void computeDistortedFocalPlaneCoordinates(
   double p21 = -m21 / determinant;
   double p22 = m22 / determinant;
 
-  std::get<0>(natFocalPlane) = p11 * t1 + p12 * t2;
-  std::get<1>(natFocalPlane) = p21 * t1 + p22 * t2;
+  distortedX = p11 * t1 + p12 * t2;
+  distortedY = p21 * t1 + p22 * t2;
+};
+
+// Compue the image pixel for a distorted focal plane coordinate
+// in - line
+// in - sample
+// in - sampleOrigin - the origin of the ccd coordinate system relative to the top left of the ccd
+// in - lineOrigin - the origin of the ccd coordinate system relative to the top left of the ccd
+// in - sampleSumming
+// in - startingSample - first ccd sample for the image
+// in - iTransS[3] - the transformation from focal plane to ccd samples
+// in - iTransL[3] - the transformation from focal plane to ccd lines
+// out - natFocalPlane
+void computePixel(
+  const double& distortedX,
+  const double& distortedY,
+  const double& sampleOrigin,
+  const double& lineOrigin,
+  const double& sampleSumming,
+  const double& lineSumming,
+  const double& startingSample,
+  const double& startingLine,
+  const double iTransS[],
+  const double iTransL[],
+  double &line,
+  double &sample)
+{
+  double centeredSample = iTransS[0] + iTransS[1] * distortedX + iTransS[2] * distortedY;
+  double centeredLine =  iTransL[0] + iTransL[1] * distortedX + iTransL[2] * distortedY;
+  double detSample = centeredSample + sampleOrigin;
+  double detLine = centeredLine + lineOrigin;
+  sample = (detSample - startingSample) / sampleSumming;
+  line = (detLine - startingLine) / lineSumming;
 };
 
 // Define imaging ray in image space (In other words, create a look vector in camera space)
@@ -112,6 +150,126 @@ void createCameraLookVector(
   cameraLook[0] /= magnitude;
   cameraLook[1] /= magnitude;
   cameraLook[2] /= magnitude;
+}
+
+// Lagrange Interpolation for equally spaced data
+void lagrangeInterp(
+   const int&     numTime,
+   const double*  valueArray,
+   const double&  startTime,
+   const double&  delTime,
+   const double&  time,
+   const int&     vectorLength,
+   const int&     i_order,
+   double*        valueVector) {
+  // Lagrange interpolation for uniform post interval.
+  // Largest order possible is 8th. Points far away from
+  // data center are handled gracefully to avoid failure.
+
+  if (numTime < 2) {
+    throw csm::Error(
+      csm::Error::INDEX_OUT_OF_RANGE,
+      "At least 2 points are required to perform Lagrange interpolation.",
+      "lagrangeInterp");
+  }
+
+  // Compute index
+
+  double fndex = (time - startTime) / delTime;
+  int    index = int(fndex);
+
+  if (index < 0)
+  {
+    index = 0;
+  }
+  if (index > numTime - 2)
+  {
+    index = numTime - 2;
+  }
+
+  // Define order, max is 8
+
+  int order;
+  if (index >= 3 && index < numTime - 4) {
+    order = 8;
+  }
+  else if (index >= 2 && index < numTime - 3) {
+    order = 6;
+  }
+  else if (index >= 1 && index < numTime - 2) {
+    order = 4;
+  }
+  else {
+    order = 2;
+  }
+  if (order > i_order) {
+    order = i_order;
+  }
+
+  // Compute interpolation coefficients
+  double tp3, tp2, tp1, tm1, tm2, tm3, tm4, d[8];
+  double tau = fndex - index;
+  if (order == 2) {
+    tm1 = tau - 1;
+    d[0] = -tm1;
+    d[1] = tau;
+  }
+  else if (order == 4) {
+    tp1 = tau + 1;
+    tm1 = tau - 1;
+    tm2 = tau - 2;
+    d[0] = -tau * tm1 * tm2 / 6.0;
+    d[1] = tp1 *       tm1 * tm2 / 2.0;
+    d[2] = -tp1 * tau *       tm2 / 2.0;
+    d[3] = tp1 * tau * tm1 / 6.0;
+  }
+  else if (order == 6) {
+    tp2 = tau + 2;
+    tp1 = tau + 1;
+    tm1 = tau - 1;
+    tm2 = tau - 2;
+    tm3 = tau - 3;
+    d[0] = -tp1 * tau * tm1 * tm2 * tm3 / 120.0;
+    d[1] = tp2 *       tau * tm1 * tm2 * tm3 / 24.0;
+    d[2] = -tp2 * tp1 *       tm1 * tm2 * tm3 / 12.0;
+    d[3] = tp2 * tp1 * tau *       tm2 * tm3 / 12.0;
+    d[4] = -tp2 * tp1 * tau * tm1 *       tm3 / 24.0;
+    d[5] = tp2 * tp1 * tau * tm1 * tm2 / 120.0;
+  }
+  else if (order == 8) {
+    tp3 = tau + 3;
+    tp2 = tau + 2;
+    tp1 = tau + 1;
+    tm1 = tau - 1;
+    tm2 = tau - 2;
+    tm3 = tau - 3;
+    tm4 = tau - 4;
+    // Why are the denominators hard coded, as it should be x[0] - x[i]
+    d[0] = -tp2 * tp1 * tau * tm1 * tm2 * tm3 * tm4 / 5040.0;
+    d[1] = tp3 *       tp1 * tau * tm1 * tm2 * tm3 * tm4 / 720.0;
+    d[2] = -tp3 * tp2 *       tau * tm1 * tm2 * tm3 * tm4 / 240.0;
+    d[3] = tp3 * tp2 * tp1 *       tm1 * tm2 * tm3 * tm4 / 144.0;
+    d[4] = -tp3 * tp2 * tp1 * tau *       tm2 * tm3 * tm4 / 144.0;
+    d[5] = tp3 * tp2 * tp1 * tau * tm1 *       tm3 * tm4 / 240.0;
+    d[6] = -tp3 * tp2 * tp1 * tau * tm1 * tm2 *       tm4 / 720.0;
+    d[7] = tp3 * tp2 * tp1 * tau * tm1 * tm2 * tm3 / 5040.0;
+  }
+
+  // Compute interpolated point
+  int    indx0 = index - order / 2 + 1;
+  for (int i = 0; i < vectorLength; i++)
+  {
+    valueVector[i] = 0.0;
+  }
+
+  for (int i = 0; i < order; i++)
+  {
+    int jndex = vectorLength * (indx0 + i);
+    for (int j = 0; j < vectorLength; j++)
+    {
+       valueVector[j] += d[i] * valueArray[jndex + j];
+    }
+  }
 }
 
 // convert a measurement
@@ -652,6 +810,8 @@ std::vector<double> getDistortionCoeffs(json isd, csm::WarningList *list) {
               "Utilities::getDistortion()"));
         }
         coefficients = std::vector<double>(20, 0.0);
+        coefficients[1] = 1.0;
+        coefficients[12] = 1.0;
       }
     }
     case DistortionType::KAGUYATC: {
@@ -698,6 +858,30 @@ std::vector<double> getDistortionCoeffs(json isd, csm::WarningList *list) {
         coefficients = std::vector<double>(3, 0.0);
       }
     }
+    break;
+    case DistortionType::KAGUYATC: {
+      try {
+        std::vector<double> coefficientsX(4,0);
+        std::vector<double> coefficientsY(4,0);
+
+        coefficientsX = isd.at("optical_distortion").at("kaguyatc").at("x").get<std::vector<double>>();
+        coefficientsY = isd.at("optical_distortion").at("kaguyatc").at("y").get<std::vector<double>>();
+        coefficientsX.insert(coefficientsX.end(), coefficientsY.begin(), coefficientsY.end());
+
+        return coefficientsX;
+      }
+      catch (...) {
+        if (list) {
+          list->push_back(
+            csm::Warning(
+              csm::Warning::DATA_NOT_AVAILABLE,
+              "Could not parse a set of transverse distortion model coefficients.",
+              "Utilities::getDistortion()"));
+        }
+        coefficients = std::vector<double>(8, 0.0);
+      }
+    }
+
   }
   if (list) {
     list->push_back(

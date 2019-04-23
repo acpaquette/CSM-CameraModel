@@ -59,10 +59,12 @@ TEST_F(FrameSensorModel, OffBody3) {
 }
 
 TEST_F(FrameSensorModel, getReferencePoint) {
-  csm::EcefCoord groundPt = sensorModel->getReferencePoint();
-  EXPECT_EQ(groundPt.x, 0.0);
-  EXPECT_EQ(groundPt.y, 0.0);
-  EXPECT_EQ(groundPt.z, 0.0);
+  csm::ImageCoord imagePt(7.5, 7.5);
+  csm::EcefCoord groundPtCenter = sensorModel->imageToGround(imagePt, 0.0);
+  csm::EcefCoord groundPtRef = sensorModel->getReferencePoint();
+  EXPECT_EQ(groundPtRef.x, groundPtCenter.x);
+  EXPECT_EQ(groundPtRef.y, groundPtCenter.y);
+  EXPECT_EQ(groundPtRef.z, groundPtCenter.z);
 }
 
 TEST_F(FrameSensorModel, OffBody4) {
@@ -75,6 +77,51 @@ TEST_F(FrameSensorModel, OffBody4) {
 
 TEST_F(FrameSensorModel, getImageIdentifier) {
   EXPECT_EQ("simpleFramerISD", sensorModel->getImageIdentifier());
+}
+
+TEST_F(FrameSensorModel, Inversion) {
+   csm::ImageCoord imagePt1(9.0, 9.0);
+   csm::EcefCoord groundPt = sensorModel->imageToGround(imagePt1, 0.0);
+   csm::ImageCoord imagePt2 = sensorModel->groundToImage(groundPt);
+   EXPECT_DOUBLE_EQ(imagePt1.line, imagePt2.line);
+   EXPECT_DOUBLE_EQ(imagePt1.samp, imagePt2.samp);
+}
+
+TEST_F(OrbitalFrameSensorModel, Center) {
+   csm::ImageCoord imagePt(8.0, 8.0);
+   csm::EcefCoord groundPt = sensorModel->imageToGround(imagePt, 0.0);
+   EXPECT_DOUBLE_EQ(groundPt.x, 1000000.0);
+   EXPECT_DOUBLE_EQ(groundPt.y, 0);
+   EXPECT_DOUBLE_EQ(groundPt.z, 0);
+}
+
+TEST_F(FrameSensorModel, Radii) {
+   csm::Ellipsoid ellipsoid = sensorModel->getEllipsoid();
+   EXPECT_DOUBLE_EQ(ellipsoid.getSemiMajorRadius(), 10);
+   EXPECT_DOUBLE_EQ(ellipsoid.getSemiMinorRadius(), 10);
+}
+
+TEST_F(FrameSensorModel, SetRadii) {
+   csm::Ellipsoid ellipsoid1(1000, 1500);
+   sensorModel->setEllipsoid(ellipsoid1);
+   csm::Ellipsoid ellipsoid2 = sensorModel->getEllipsoid();
+   EXPECT_DOUBLE_EQ(ellipsoid2.getSemiMajorRadius(), 1000);
+   EXPECT_DOUBLE_EQ(ellipsoid2.getSemiMinorRadius(), 1500);
+}
+
+TEST_F(OrbitalFrameSensorModel, GroundPartials) {
+   csm::EcefCoord groundPt(1000000.0, 0.0, 0.0);
+   std::vector<double> partials = sensorModel->computeGroundPartials(groundPt);
+   // Pixels are 100m
+   // lines are increasing z and samples are increasing y in body fixed
+   // lines partials should be 0 except for the z partial which should be 1/100
+   // sample partials should be 0 except for the y partial which should be 1/100
+   EXPECT_DOUBLE_EQ(partials[0], 0.0);
+   EXPECT_DOUBLE_EQ(partials[1], 0.0);
+   EXPECT_DOUBLE_EQ(partials[2], 1 / 100.0);
+   EXPECT_DOUBLE_EQ(partials[3], 0.0);
+   EXPECT_DOUBLE_EQ(partials[4], 1 / 100.0);
+   EXPECT_DOUBLE_EQ(partials[5], 0.0);
 }
 
 
@@ -227,7 +274,7 @@ TEST_F(FrameSensorModel, Rotation_NPole_Center) {
 
 
 TEST_F(FrameSensorModel, Rotation_SPole_Center) {
-   sensorModel->setParameterValue(4, 0.0); // phi
+   sensorModel->setParameterValue(3, 0.0); // phi
    sensorModel->setParameterValue(0, 0.0); // X
    sensorModel->setParameterValue(1, 0.0); // Y
    sensorModel->setParameterValue(2, -1000.0); // Z
@@ -295,6 +342,74 @@ TEST_F(FrameStateTest, SemiMinorAxis10x_SlightlyOffCenter) {
   EXPECT_NEAR(groundPt.x, 9.99803960, 1e-8);
   EXPECT_NEAR(groundPt.y, 0.0, 1e-8);
   EXPECT_NEAR(groundPt.z, 1.98000392, 1e-8);
+
+  delete sensorModel;
+  sensorModel = NULL;
+}
+
+
+TEST_F(FrameStateTest, SampleSumming) {
+  std::string key = "m_detectorSampleSumming";
+  double newValue = 2.0;
+  UsgsAstroFrameSensorModel* sensorModel = createModifiedStateSensorModel(key, newValue);
+
+  ASSERT_NE(sensorModel, nullptr);
+   csm::ImageCoord imagePt(7.5, 3.75);
+   csm::EcefCoord groundPt = sensorModel->imageToGround(imagePt, 0.0);
+   EXPECT_NEAR(groundPt.x, 10.0, 1e-8);
+   EXPECT_NEAR(groundPt.y, 0, 1e-8);
+   EXPECT_NEAR(groundPt.z, 0, 1e-8);
+
+  delete sensorModel;
+  sensorModel = NULL;
+}
+
+
+TEST_F(FrameStateTest, LineSumming) {
+  std::string key = "m_detectorLineSumming";
+  double newValue = 2.0;
+  UsgsAstroFrameSensorModel* sensorModel = createModifiedStateSensorModel(key, newValue);
+
+  ASSERT_NE(sensorModel, nullptr);
+   csm::ImageCoord imagePt(3.75, 7.5);
+   csm::EcefCoord groundPt = sensorModel->imageToGround(imagePt, 0.0);
+   EXPECT_NEAR(groundPt.x, 10.0, 1e-8);
+   EXPECT_NEAR(groundPt.y, 0, 1e-8);
+   EXPECT_NEAR(groundPt.z, 0, 1e-8);
+
+  delete sensorModel;
+  sensorModel = NULL;
+}
+
+
+TEST_F(FrameStateTest, StartSample) {
+  std::string key = "m_startingDetectorSample";
+  double newValue = 5.0;
+  UsgsAstroFrameSensorModel* sensorModel = createModifiedStateSensorModel(key, newValue);
+
+  ASSERT_NE(sensorModel, nullptr);
+   csm::ImageCoord imagePt(7.5, 2.5);
+   csm::EcefCoord groundPt = sensorModel->imageToGround(imagePt, 0.0);
+   EXPECT_NEAR(groundPt.x, 10.0, 1e-8);
+   EXPECT_NEAR(groundPt.y, 0, 1e-8);
+   EXPECT_NEAR(groundPt.z, 0, 1e-8);
+
+  delete sensorModel;
+  sensorModel = NULL;
+}
+
+
+TEST_F(FrameStateTest, StartLine) {
+  std::string key = "m_startingDetectorLine";
+  double newValue = 5.0;
+  UsgsAstroFrameSensorModel* sensorModel = createModifiedStateSensorModel(key, newValue);
+
+  ASSERT_NE(sensorModel, nullptr);
+   csm::ImageCoord imagePt(2.5, 7.5);
+   csm::EcefCoord groundPt = sensorModel->imageToGround(imagePt, 0.0);
+   EXPECT_NEAR(groundPt.x, 10.0, 1e-8);
+   EXPECT_NEAR(groundPt.y, 0, 1e-8);
+   EXPECT_NEAR(groundPt.z, 0, 1e-8);
 
   delete sensorModel;
   sensorModel = NULL;
