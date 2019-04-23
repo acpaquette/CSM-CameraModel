@@ -228,7 +228,7 @@ csm::EcefCoord UsgsAstroFrameSensorModel::imageToGround(const csm::ImageCoord &i
   xl = m[0][0] * undistortedX + m[0][1] * undistortedY - m[0][2] * - m_focalLength;
   yl = m[1][0] * undistortedX + m[1][1] * undistortedY - m[1][2] * - m_focalLength;
   zl = m[2][0] * undistortedX + m[2][1] * undistortedY - m[2][2] * - m_focalLength;
-  MESSAGE_LOG(this->m_logger, "Compute xl, yl, zl as {}, {}, {}", xl, yl, zl);
+  MESSAGE_LOG(this->m_logger, "Computed xl, yl, zl as {}, {}, {}", xl, yl, zl);
 
   double xc, yc, zc;
   xc = m_currentParameterValue[0];
@@ -240,6 +240,9 @@ csm::EcefCoord UsgsAstroFrameSensorModel::imageToGround(const csm::ImageCoord &i
   // Intersect with some height about the ellipsoid.
   double x, y, z;
   losEllipsoidIntersect(height, xc, yc, zc, xl, yl, zl, x, y, z);
+
+  MESSAGE_LOG(this->m_logger, "Computed ground x: {}, y: {}, z: {} from line: {}, sample: {}",
+                             x, y, z, imagePt.line, imagePt.samp)
 
   return csm::EcefCoord(x, y, z);
 }
@@ -592,6 +595,9 @@ std::vector<double> UsgsAstroFrameSensorModel::computeGroundPartials(const csm::
   MESSAGE_LOG(this->m_logger, "Computing ground partials results:\nLine: {}, {}, {}\nSample: {}, {}, {}",
                                partials[0], partials[1], partials[2], partials[3], partials[4], partials[5]);
 
+  MESSAGE_LOG(this->m_logger, "Computing ground partials result line: {}, sample: {}, wrt: {} and x: {}, y: {}, z: {}",
+                               partials[0], partials[1], partials[2], partials[3], partials[4], partials[5]);
+
   return partials;
 }
 
@@ -733,7 +739,7 @@ std::string UsgsAstroFrameSensorModel::getModelState() const {
       {"m_currentParameterCovariance", m_currentParameterCovariance},
       {"m_logFile", m_logFile}
     };
-
+    MESSAGE_LOG(this->m_logger, "STATE: {}", state.dump())
     return state.dump();
 }
 
@@ -1187,7 +1193,9 @@ void UsgsAstroFrameSensorModel::setEllipsoid(const csm::Ellipsoid &ellipsoid) {
 
 void UsgsAstroFrameSensorModel::calcRotationMatrix(
     double m[3][3]) const {
-  MESSAGE_LOG(this->m_logger, "Calculating rotation matrix");
+  MESSAGE_LOG(this->m_logger, "Calculating rotation matrix with w: {}, x: {}, y: {}, z: {}",
+                               m_currentParameterValue[3], m_currentParameterValue[4],
+                               m_currentParameterValue[5], m_currentParameterValue[6]);
   // Trigonometric functions for rotation matrix
   double x = m_currentParameterValue[3];
   double y = m_currentParameterValue[4];
@@ -1239,9 +1247,8 @@ void UsgsAstroFrameSensorModel::losEllipsoidIntersect(
       double&       y,
       double&       z ) const
 {
-   MESSAGE_LOG(this->m_logger, "Calculating losEllipsoidIntersect with height: {},\n\
-                                xc: {}, yc: {}, zc: {}\n\
-                                xl: {}, yl: {}, zl: {}", height,
+   MESSAGE_LOG(this->m_logger, "Calculating losEllipsoidIntersect with height: {}, xc: {}, yc: {}, zc: {}, xl: {}, yl: {}, zl: {}",
+                                height,
                                 xc, yc, zc,
                                 xl, yl, zl);
    // Helper function which computes the intersection of the image ray
